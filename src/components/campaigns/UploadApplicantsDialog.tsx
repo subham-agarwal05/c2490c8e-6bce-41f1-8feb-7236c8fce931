@@ -52,25 +52,40 @@ const UploadApplicantsDialog = ({ open, onOpenChange, testId }: UploadApplicants
           name: row["name"] || row["Name"] || row["NAME"] || "",
           email: row["email"] || row["Email"] || row["EMAIL"] || null,
           phone: row["phone"] || row["Phone"] || row["PHONE"] || null,
-        }));
+        })).filter((applicant) => applicant.roll_number && applicant.name);
 
         if (applicants.length === 0) {
           toast({
             title: "Error",
-            description: "No valid data found in the Excel file",
+            description: "No valid data found in the Excel file. Make sure columns 'roll_number' and 'name' exist.",
             variant: "destructive",
           });
           setLoading(false);
           return;
         }
 
-        const { error } = await supabase.from("applicants").insert(applicants);
+        // Remove duplicates within the file itself
+        const uniqueApplicants = Array.from(
+          new Map(applicants.map((app) => [app.roll_number, app])).values()
+        );
+
+        const { error } = await supabase
+          .from("applicants")
+          .upsert(uniqueApplicants, {
+            onConflict: "test_id,roll_number",
+            ignoreDuplicates: false,
+          });
 
         if (error) throw error;
 
+        const duplicatesRemoved = applicants.length - uniqueApplicants.length;
+        const message = duplicatesRemoved > 0
+          ? `${uniqueApplicants.length} applicants uploaded/updated successfully (${duplicatesRemoved} duplicates removed)`
+          : `${uniqueApplicants.length} applicants uploaded/updated successfully`;
+
         toast({
           title: "Success",
-          description: `${applicants.length} applicants uploaded successfully`,
+          description: message,
         });
 
         onOpenChange(false);
