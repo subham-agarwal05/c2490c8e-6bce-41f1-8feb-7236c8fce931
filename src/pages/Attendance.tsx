@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ScanBarcode, UserCheck } from "lucide-react";
+import { ScanBarcode, UserCheck, X } from "lucide-react";
+import { Html5Qrcode } from "html5-qrcode";
 
 interface Test {
   id: string;
@@ -23,11 +24,23 @@ const Attendance = () => {
   const [rollNumber, setRollNumber] = useState("");
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
 
   useEffect(() => {
     checkAuth();
     fetchTests();
   }, []);
+
+  useEffect(() => {
+    if (scanning) {
+      startScanner();
+    } else {
+      stopScanner();
+    }
+    return () => {
+      stopScanner();
+    };
+  }, [scanning]);
 
   const checkAuth = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -136,6 +149,50 @@ const Attendance = () => {
     }
   };
 
+  const startScanner = async () => {
+    try {
+      const html5QrCode = new Html5Qrcode("barcode-scanner");
+      scannerRef.current = html5QrCode;
+
+      await html5QrCode.start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 },
+        },
+        (decodedText) => {
+          setRollNumber(decodedText);
+          setScanning(false);
+          toast({
+            title: "Scanned successfully",
+            description: `Roll number: ${decodedText}`,
+          });
+        },
+        () => {
+          // Ignore errors during scanning
+        }
+      );
+    } catch (error: any) {
+      toast({
+        title: "Camera error",
+        description: "Unable to access camera. Please check permissions.",
+        variant: "destructive",
+      });
+      setScanning(false);
+    }
+  };
+
+  const stopScanner = async () => {
+    if (scannerRef.current?.isScanning) {
+      try {
+        await scannerRef.current.stop();
+        scannerRef.current.clear();
+      } catch (error) {
+        console.error("Error stopping scanner:", error);
+      }
+    }
+  };
+
   return (
     <DashboardLayout activeTab="attendance">
       <div className="space-y-6">
@@ -177,20 +234,25 @@ const Attendance = () => {
                     value={rollNumber}
                     onChange={(e) => setRollNumber(e.target.value)}
                     onKeyPress={handleKeyPress}
-                    disabled={!selectedTest}
-                    autoFocus
+                    disabled={!selectedTest || scanning}
+                    autoFocus={!scanning}
                   />
                   <Button
                     size="icon"
-                    variant="outline"
+                    variant={scanning ? "default" : "outline"}
                     onClick={() => setScanning(!scanning)}
                     disabled={!selectedTest}
                   >
-                    <ScanBarcode className="h-4 w-4" />
+                    {scanning ? <X className="h-4 w-4" /> : <ScanBarcode className="h-4 w-4" />}
                   </Button>
                 </div>
+                {scanning && (
+                  <div className="mt-4 p-4 border rounded-lg bg-background">
+                    <div id="barcode-scanner" className="w-full" />
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground">
-                  Scan barcode or type roll number and press Enter
+                  {scanning ? "Point camera at barcode" : "Scan barcode or type roll number and press Enter"}
                 </p>
               </div>
 
